@@ -41,7 +41,7 @@ jobs:
       - name: Upload coverage artifact
         # this is needed so we can compare diffs in coverage.yml
         if: ${{ matrix.python-version == '3.13' }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: pr-coverage-${{ github.sha }}
           path: pr_coverage.json
