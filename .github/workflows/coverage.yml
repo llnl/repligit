@@ -110,7 +110,7 @@ jobs:
 
       - name: Upload base coverage artifact
         if: github.ref_name == 'main' && github.event_name == 'push'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: base-coverage-${{ github.sha }}
           path: base_coverage.json
