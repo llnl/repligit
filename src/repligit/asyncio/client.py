@@ -14,11 +14,7 @@ async def ls_remote(
     """
 
     url = f"{url}/info/refs?service=git-upload-pack"
-    auth = (
-        aiohttp.BasicAuth(username or "", password)
-        if password
-        else None
-    )
+    auth = aiohttp.BasicAuth(username or "", password) if password else None
     async with aiohttp.ClientSession(auth=auth) as session:
         async with session.get(url, raise_for_status=True) as resp:
             lines = decode_lines(iter_lines(resp, encoding="utf-8"))
@@ -47,11 +43,7 @@ async def fetch_pack(
     have_shas = set(have_shas)
 
     url = f"{url}/git-upload-pack"
-    auth = (
-        aiohttp.BasicAuth(username or "", password)
-        if password
-        else None
-    )
+    auth = aiohttp.BasicAuth(username or "", password) if password else None
 
     request = generate_fetch_pack_request(want_sha, have_shas)
 
@@ -88,11 +80,7 @@ async def send_pack(
 ) -> None:
     """Send a packfile to a remote server."""
     url = f"{url}/git-receive-pack"
-    auth = (
-        aiohttp.BasicAuth(username or "", password)
-        if password
-        else None
-    )
+    auth = aiohttp.BasicAuth(username or "", password) if password else None
 
     header = generate_send_pack_header(ref, from_sha, to_sha)
     # unlike in the sync version the packfile is already read into memory
