@@ -40,3 +40,13 @@ exclude = ["spack"]
 exclude_dirs = []
 # allow use of assert
 skips = ["B101"]
+
+[tool.ty.src]
+# exclude spack directory from type checking
+exclude = ["spack/**"]
+
+[tool.ty]
+# ignore aiohttp unresolved imports (optional dependency)
+[[tool.ty.overrides]]
+include = ["src/repligit/asyncio/**/*.py"]
+rules.unresolved-import = "ignore"
