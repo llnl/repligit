@@ -6,7 +6,7 @@ from repligit.asyncio.parse import decode_lines, iter_lines
 from repligit.parse import generate_fetch_pack_request, generate_send_pack_header
 
 
-async def ls_remote(url: str, username: str | None = None, password: str | None = None):
+async def ls_remote(url: str, username: str | None = None, password: str | None = None) -> dict[str, str]:
     """Get commit hash of remote master branch, return SHA-1 hex string or
     None if no remote commits.
     """
@@ -34,8 +34,12 @@ async def ls_remote(url: str, username: str | None = None, password: str | None 
 
 
 async def fetch_pack(
-    url: str, want_sha: str, have_shas: Iterable[str], username=None, password=None
-):
+    url: str,
+    want_sha: str,
+    have_shas: Iterable[str],
+    username: str | None = None,
+    password: str | None = None,
+) -> bytes | None:
     """Download a packfile from a remote server."""
     # ensure have_shas is a set, else packfile errors will occur
     have_shas = set(have_shas)
@@ -76,10 +80,10 @@ async def send_pack(
     ref: str,
     from_sha: str,
     to_sha: str,
-    packfile,
+    packfile: bytes,
     username: str | None = None,
     password: str | None = None,
-):
+) -> None:
     """Send a packfile to a remote server."""
     url = f"{url}/git-receive-pack"
     auth = (

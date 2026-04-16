@@ -23,7 +23,7 @@ async def decode_lines(line_stream: AsyncIterable) -> AsyncIterator:
 
 async def iter_lines(
     resp: aiohttp.ClientResponse, encoding: str = "utf-8", chunk_size: int = 16 * 1024
-):
+) -> AsyncIterator[str]:
     """
     Asynchronously iterate over the lines of an HTTP response.
 
