@@ -15,8 +15,8 @@ async def ls_remote(
 
     url = f"{url}/info/refs?service=git-upload-pack"
     auth = (
-        aiohttp.BasicAuth(username or "", password or "")
-        if username or password
+        aiohttp.BasicAuth(username or "", password)
+        if password
         else None
     )
     async with aiohttp.ClientSession(auth=auth) as session:
@@ -48,8 +48,8 @@ async def fetch_pack(
 
     url = f"{url}/git-upload-pack"
     auth = (
-        aiohttp.BasicAuth(username or "", password or "")
-        if username or password
+        aiohttp.BasicAuth(username or "", password)
+        if password
         else None
     )
 
@@ -89,8 +89,8 @@ async def send_pack(
     """Send a packfile to a remote server."""
     url = f"{url}/git-receive-pack"
     auth = (
-        aiohttp.BasicAuth(username or "", password or "")
-        if username or password
+        aiohttp.BasicAuth(username or "", password)
+        if password
         else None
     )
 

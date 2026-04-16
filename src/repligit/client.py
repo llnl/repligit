@@ -33,8 +33,8 @@ def http_request(
     """
     password_manager = urllib.request.HTTPPasswordMgrWithDefaultRealm()
 
-    if username or password:
-        password_manager.add_password(None, url, username or "", password or "")
+    if password:
+        password_manager.add_password(None, url, username or "", password)
 
     auth_handler = urllib.request.HTTPBasicAuthHandler(password_manager)
     opener = urllib.request.build_opener(auth_handler)
