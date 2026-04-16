@@ -25,6 +25,7 @@ Issues = "https://github.com/llnl/repligit/issues"
 
 [project.optional-dependencies]
 aiohttp = ["aiohttp"]
+dev = ["ty"]
 
 [tool.pytest.ini_options]
 pythonpath = [

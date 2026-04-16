@@ -3,15 +3,15 @@ from repligit.parse import decode_lines, encode_lines, generate_send_pack_header
 
 def test_decode_lines():
     raw_lines = [
-        b"003fbef547a59eec448284136f03984dce0f2f8239a9 refs/pull/95/head",
-        b"003f358aa046cd57dbca306e80d4c3fbb86edc5b36af refs/pull/96/head",
-        b"0000",
+        "003fbef547a59eec448284136f03984dce0f2f8239a9 refs/pull/95/head",
+        "003f358aa046cd57dbca306e80d4c3fbb86edc5b36af refs/pull/96/head",
+        "0000",
     ]
 
     decoded_lines = [
-        b"bef547a59eec448284136f03984dce0f2f8239a9 refs/pull/95/head",
-        b"358aa046cd57dbca306e80d4c3fbb86edc5b36af refs/pull/96/head",
-        b"",
+        "bef547a59eec448284136f03984dce0f2f8239a9 refs/pull/95/head",
+        "358aa046cd57dbca306e80d4c3fbb86edc5b36af refs/pull/96/head",
+        "",
     ]
 
     lines = list(decode_lines(raw_lines))

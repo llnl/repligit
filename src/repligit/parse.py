@@ -1,9 +1,9 @@
-from typing import IO, Generator, List, Set, Union
+from typing import IO, Generator, Iterable, Set, Union
 
 
 def iter_lines(
     data: IO, encoding: str = "utf-8", chunk_size: int = 16 * 1024
-) -> Generator[str, str, str]:
+) -> Generator[str, None, None]:
     """
     Iterate over the lines of a file-like object, yielding one line at a time.
 
@@ -30,7 +30,7 @@ def iter_lines(
         yield incomplete_line.rstrip(b"\r").decode(encoding)
 
 
-def decode_lines(lines: Generator[str, str, str]) -> Generator[str, str, str]:
+def decode_lines(lines: Iterable[str]) -> Generator[str, None, None]:
     """
     Decode lines from the git transfer protocol into usable lines.
 
@@ -49,7 +49,7 @@ def decode_lines(lines: Generator[str, str, str]) -> Generator[str, str, str]:
         yield line[4:line_length]
 
 
-def encode_lines(lines: List[Union[bytes, str]]) -> bytes:
+def encode_lines(lines: Iterable[bytes | str]) -> bytes:
     """
     Encode a list of lines into a byte string format for git transmission.
 
