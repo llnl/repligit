@@ -48,7 +48,9 @@ def http_request(
     return opener.open(request)
 
 
-def ls_remote(url: str, username: str | None = None, password: str | None = None) -> dict[str, str]:
+def ls_remote(
+    url: str, username: str | None = None, password: str | None = None
+) -> dict[str, str]:
     """Get commit hash of remote master branch, return SHA-1 hex string or
     None if no remote commits.
     """

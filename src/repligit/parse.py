@@ -1,4 +1,4 @@
-from typing import IO, Generator, Iterable, Set, Union
+from typing import IO, Generator, Iterable, Set
 
 
 def iter_lines(

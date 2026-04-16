@@ -6,7 +6,9 @@ from repligit.asyncio.parse import decode_lines, iter_lines
 from repligit.parse import generate_fetch_pack_request, generate_send_pack_header
 
 
-async def ls_remote(url: str, username: str | None = None, password: str | None = None) -> dict[str, str]:
+async def ls_remote(
+    url: str, username: str | None = None, password: str | None = None
+) -> dict[str, str]:
     """Get commit hash of remote master branch, return SHA-1 hex string or
     None if no remote commits.
     """
