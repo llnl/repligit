@@ -1,5 +1,6 @@
 import urllib.request
-from typing import Set
+from http.client import HTTPResponse
+from typing import BinaryIO, Iterable
 
 from repligit.parse import (
     decode_lines,
@@ -9,7 +10,13 @@ from repligit.parse import (
 )
 
 
-def http_request(url, headers=None, username=None, password=None, data=None):
+def http_request(
+    url: str,
+    headers: dict[str, str] | None = None,
+    username: str | None = None,
+    password: str | None = None,
+    data: bytes | None = None,
+) -> HTTPResponse:
     """
     Constructs and executes an HTTP request using urllib. (GET by default,
     POST if "data" is not None).
@@ -25,7 +32,9 @@ def http_request(url, headers=None, username=None, password=None, data=None):
         file-like object: The response file handler from the request
     """
     password_manager = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-    password_manager.add_password(None, url, username, password)
+
+    if password:
+        password_manager.add_password(None, url, username or "", password)
 
     auth_handler = urllib.request.HTTPBasicAuthHandler(password_manager)
     opener = urllib.request.build_opener(auth_handler)
@@ -39,7 +48,9 @@ def http_request(url, headers=None, username=None, password=None, data=None):
     return opener.open(request)
 
 
-def ls_remote(url: str, username: str = None, password: str = None):
+def ls_remote(
+    url: str, username: str | None = None, password: str | None = None
+) -> dict[str, str]:
     """Get commit hash of remote master branch, return SHA-1 hex string or
     None if no remote commits.
     """
@@ -51,16 +62,19 @@ def ls_remote(url: str, username: str = None, password: str = None):
     service_line = next(lines)
     assert service_line == "# service=git-upload-pack"
 
-    return dict(reversed(line.split()) for line in lines if line)
+    return {ref: sha for sha, ref in (line.split() for line in lines if line)}
 
 
 def fetch_pack(
-    url: str, want_sha: str, have_shas: Set[str], username=None, password=None
-):
+    url: str,
+    want_sha: str,
+    have_shas: Iterable[str],
+    username: str | None = None,
+    password: str | None = None,
+) -> HTTPResponse | None:
     """Download a packfile from a remote server."""
     # ensure have_shas is a set, else packfile errors will occur
-    if not isinstance(have_shas, set):
-        have_shas = set(have_shas)
+    have_shas = set(have_shas)
 
     url = f"{url}/git-upload-pack"
     request = generate_fetch_pack_request(want_sha, have_shas)
@@ -89,10 +103,10 @@ def send_pack(
     ref: str,
     from_sha: str,
     to_sha: str,
-    packfile,
-    username: str = None,
-    password: str = None,
-):
+    packfile: BinaryIO,
+    username: str | None = None,
+    password: str | None = None,
+) -> None:
     """Send a packfile to a remote server."""
     url = f"{url}/git-receive-pack"
 

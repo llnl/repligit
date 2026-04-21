@@ -25,6 +25,7 @@ Issues = "https://github.com/llnl/repligit/issues"
 
 [project.optional-dependencies]
 aiohttp = ["aiohttp"]
+dev = ["ty", "ruff", "typos", "coverage", "pytest", "pytest-mock"]
 
 [tool.pytest.ini_options]
 pythonpath = [
@@ -39,3 +40,7 @@ exclude = ["spack"]
 exclude_dirs = []
 # allow use of assert
 skips = ["B101"]
+
+[tool.ty.src]
+# exclude spack directory from type checking
+exclude = ["spack/**"]

@@ -40,6 +40,10 @@ def main():
         # password=src_password,  # Uncomment if source repo requires auth
     )
 
+    if packfile is None:
+        print("Failed to fetch packfile")
+        return
+
     # Upload packfile to destination repository
     send_pack(
         dest_remote_url,
