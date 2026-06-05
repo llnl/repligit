@@ -3,9 +3,8 @@
 # It describes a set of packages to be installed, along with
 # configuration settings.
 spack:
-  # add package specs to the `specs` list
   repos:
-  - $env/repos/spack_repo/repligit
+    repligit: spack/repos/spack_repo/repligit
   specs:
   - py-codespell
   - py-pytest
@@ -20,4 +19,4 @@ spack:
   develop:
     py-repligit:
       spec: py-repligit@=main
-      path: $env/../
+      path: .
