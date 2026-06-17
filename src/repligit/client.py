@@ -124,5 +124,12 @@ def send_pack(
     )
 
     lines = decode_lines(iter_lines(resp))
-    assert next(lines) == "unpack ok"
-    assert next(lines) == f"ok {ref}"
+    line1 = next(lines)
+    line2 = next(lines)
+    assert line1 == "unpack ok"
+
+    # ng = not good, ref update rejected
+    if line2 == f"ng {ref} pre-receive hook declined":
+        raise Exception("pre-receive hook declined")
+
+    assert line2 == f"ok {ref}"

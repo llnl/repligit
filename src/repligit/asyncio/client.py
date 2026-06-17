@@ -96,5 +96,12 @@ async def send_pack(
             raise_for_status=True,
         ) as resp:
             lines = decode_lines(iter_lines(resp, encoding="utf-8"))
-            assert await anext(lines) == "unpack ok"
-            assert await anext(lines) == f"ok {ref}"
+            line1 = await anext(lines)
+            line2 = await anext(lines)
+            assert line1 == "unpack ok"
+
+            # ng = not good, ref update rejected
+            if line2 == f"ng {ref} pre-receive hook declined":
+                raise Exception("pre-receive hook declined")
+
+            assert line2 == f"ok {ref}"
