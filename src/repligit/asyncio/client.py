@@ -3,6 +3,7 @@ from typing import Iterable
 import aiohttp
 
 from repligit.asyncio.parse import decode_lines, iter_lines
+from repligit.exceptions import HOOK_DECLINED_MSG, RefUpdateRejected
 from repligit.parse import generate_fetch_pack_request, generate_send_pack_header
 
 
@@ -100,7 +101,7 @@ async def send_pack(
 
             line2 = await anext(lines)
             # ng = not good, ref update rejected
-            if line2 == f"ng {ref} pre-receive hook declined":
-                raise Exception("pre-receive hook declined")
+            if line2 == f"ng {ref} {HOOK_DECLINED_MSG}":
+                raise RefUpdateRejected(HOOK_DECLINED_MSG)
 
             assert line2 == f"ok {ref}"

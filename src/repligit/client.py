@@ -2,6 +2,7 @@ import urllib.request
 from http.client import HTTPResponse
 from typing import BinaryIO, Iterable
 
+from repligit.exceptions import HOOK_DECLINED_MSG, RefUpdateRejected
 from repligit.parse import (
     decode_lines,
     generate_fetch_pack_request,
@@ -128,7 +129,7 @@ def send_pack(
 
     line2 = next(lines)
     # ng = not good, ref update rejected
-    if line2 == f"ng {ref} pre-receive hook declined":
-        raise Exception("pre-receive hook declined")
+    if line2 == f"ng {ref} {HOOK_DECLINED_MSG}":
+        raise RefUpdateRejected(HOOK_DECLINED_MSG)
 
     assert line2 == f"ok {ref}"
