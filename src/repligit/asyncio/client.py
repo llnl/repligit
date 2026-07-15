@@ -3,7 +3,13 @@ from typing import Iterable
 import aiohttp
 
 from repligit.asyncio.parse import decode_lines, iter_lines
-from repligit.exceptions import HOOK_DECLINED_MSG, RefUpdateRejected
+from repligit.exceptions import (
+    HOOK_DECLINED_MSG,
+    RefUpdateRejected,
+    RemoteError,
+    UnexpectedResponse,
+    UnpackFailed,
+)
 from repligit.parse import generate_fetch_pack_request, generate_send_pack_header
 
 
@@ -20,7 +26,8 @@ async def ls_remote(
         async with session.get(url, raise_for_status=True) as resp:
             lines = decode_lines(iter_lines(resp, encoding="utf-8"))
             service_line = await anext(lines)
-            assert service_line == "# service=git-upload-pack"
+            if service_line != "# service=git-upload-pack":
+                raise UnexpectedResponse(f"invalid service line: {service_line!r}")
 
             # `async for` inside `dict()` not supported so no dict comprehension
             result = {}
@@ -62,6 +69,11 @@ async def fetch_pack(
             line_length = int(length_bytes, 16)
 
             line = await resp.content.readexactly(line_length - 4)
+
+            # e.g. "ERR upload-pack: not our ref <sha>"
+            if line[:3] == b"ERR":
+                raise RemoteError(line.decode("utf-8").strip())
+
             if line[:3] == b"NAK" or line[:3] == b"ACK":
                 # this is a difference in API between sync and async
                 # has to be read within this context to be used in the caller
@@ -97,11 +109,14 @@ async def send_pack(
             raise_for_status=True,
         ) as resp:
             lines = decode_lines(iter_lines(resp, encoding="utf-8"))
-            assert await anext(lines) == "unpack ok"
+            unpack_status = await anext(lines)
+            if unpack_status != "unpack ok":
+                raise UnpackFailed(unpack_status)
 
             line2 = await anext(lines)
             # ng = not good, ref update rejected
             if line2 == f"ng {ref} {HOOK_DECLINED_MSG}":
                 raise RefUpdateRejected(HOOK_DECLINED_MSG)
 
-            assert line2 == f"ok {ref}"
+            if line2 != f"ok {ref}":
+                raise UnexpectedResponse(f"unexpected ref status line: {line2!r}")
