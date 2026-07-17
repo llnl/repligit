@@ -2,6 +2,13 @@ import urllib.request
 from http.client import HTTPResponse
 from typing import BinaryIO, Iterable
 
+from repligit.exceptions import (
+    HOOK_DECLINED_MSG,
+    RefUpdateRejected,
+    RemoteError,
+    UnexpectedResponse,
+    UnpackFailed,
+)
 from repligit.parse import (
     decode_lines,
     generate_fetch_pack_request,
@@ -60,7 +67,8 @@ def ls_remote(
 
     lines = decode_lines(iter_lines(resp))
     service_line = next(lines)
-    assert service_line == "# service=git-upload-pack"
+    if service_line != "# service=git-upload-pack":
+        raise UnexpectedResponse(f"invalid service line: {service_line!r}")
 
     return {ref: sha for sha, ref in (line.split() for line in lines if line)}
 
@@ -91,6 +99,10 @@ def fetch_pack(
 
     line_length = int(resp.read(4), 16)
     line = resp.read(line_length - 4)
+
+    # e.g. "ERR upload-pack: not our ref <sha>"
+    if line[:3] == b"ERR":
+        raise RemoteError(line.decode("utf-8").strip())
 
     if line[:3] == b"NAK" or line[:3] == b"ACK":
         return resp
@@ -124,11 +136,14 @@ def send_pack(
     )
 
     lines = decode_lines(iter_lines(resp))
-    assert next(lines) == "unpack ok"
+    unpack_status = next(lines)
+    if unpack_status != "unpack ok":
+        raise UnpackFailed(unpack_status)
 
     line2 = next(lines)
     # ng = not good, ref update rejected
-    if line2 == f"ng {ref} pre-receive hook declined":
-        raise Exception("pre-receive hook declined")
+    if line2 == f"ng {ref} {HOOK_DECLINED_MSG}":
+        raise RefUpdateRejected(HOOK_DECLINED_MSG)
 
-    assert line2 == f"ok {ref}"
+    if line2 != f"ok {ref}":
+        raise UnexpectedResponse(f"unexpected ref status line: {line2!r}")
