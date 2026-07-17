@@ -3,7 +3,6 @@ from http.client import HTTPResponse
 from typing import BinaryIO, Iterable
 
 from repligit.exceptions import (
-    HOOK_DECLINED_MSG,
     RefUpdateRejected,
     RemoteError,
     UnexpectedResponse,
@@ -140,10 +139,13 @@ def send_pack(
     if unpack_status != "unpack ok":
         raise UnpackFailed(unpack_status)
 
-    line2 = next(lines)
-    # ng = not good, ref update rejected
-    if line2 == f"ng {ref} {HOOK_DECLINED_MSG}":
-        raise RefUpdateRejected(HOOK_DECLINED_MSG)
+    # "ng <ref> <reason>" (ng = not good) means the remote rejected the update.
+    # The reason can be non-fast-forward, hook declined, missing objects, etc.
+    ref_status = next(lines)
+    prefix = f"ng {ref} "
+    if ref_status.startswith(prefix):
+        reason_str = ref_status[len(prefix) :]
+        raise RefUpdateRejected(reason_str)
 
-    if line2 != f"ok {ref}":
-        raise UnexpectedResponse(f"unexpected ref status line: {line2!r}")
+    if ref_status != f"ok {ref}":
+        raise UnexpectedResponse(f"unexpected ref status line: {ref_status!r}")

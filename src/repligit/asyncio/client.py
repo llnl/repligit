@@ -4,7 +4,6 @@ import aiohttp
 
 from repligit.asyncio.parse import decode_lines, iter_lines
 from repligit.exceptions import (
-    HOOK_DECLINED_MSG,
     RefUpdateRejected,
     RemoteError,
     UnexpectedResponse,
@@ -113,10 +112,13 @@ async def send_pack(
             if unpack_status != "unpack ok":
                 raise UnpackFailed(unpack_status)
 
-            line2 = await anext(lines)
-            # ng = not good, ref update rejected
-            if line2 == f"ng {ref} {HOOK_DECLINED_MSG}":
-                raise RefUpdateRejected(HOOK_DECLINED_MSG)
+            # "ng <ref> <reason>" (ng = not good) means the remote rejected the
+            # update. The reason may be non-fast-forward, hook declined, etc.
+            ref_status = await anext(lines)
+            prefix = f"ng {ref} "
+            if ref_status.startswith(prefix):
+                reason_str = ref_status[len(prefix) :]
+                raise RefUpdateRejected(reason_str)
 
-            if line2 != f"ok {ref}":
-                raise UnexpectedResponse(f"unexpected ref status line: {line2!r}")
+            if ref_status != f"ok {ref}":
+                raise UnexpectedResponse(f"unexpected ref status line: {ref_status!r}")
