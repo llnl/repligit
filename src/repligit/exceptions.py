@@ -1,6 +1,3 @@
-HOOK_DECLINED_MSG = "pre-receive hook declined"
-
-
 class RepligitError(Exception):
     """Base class for all repligit errors."""
 
