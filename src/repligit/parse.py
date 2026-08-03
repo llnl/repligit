@@ -59,13 +59,12 @@ def encode_lines(lines: Iterable[bytes | str]) -> bytes:
     Returns:
         bytes: A single byte string containing all encoded lines.
     """
-    result = []
+    result: list[bytes] = []
     for line in lines:
-        if type(line) is str:
-            line = line.encode("utf-8")
+        data = line.encode("utf-8") if isinstance(line, str) else line
 
-        result.append(f"{len(line) + 5:04x}".encode())
-        result.append(line)
+        result.append(f"{len(data) + 5:04x}".encode())
+        result.append(data)
         result.append(b"\n")
 
     return b"".join(result)
