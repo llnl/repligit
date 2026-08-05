@@ -8,7 +8,7 @@ spack:
   specs:
   - py-codespell
   - py-pytest
-  - py-repligit
+  - py-repligit +aiohttp
   - py-bandit
   - py-ruff
   - py-pip

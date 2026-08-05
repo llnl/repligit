@@ -41,7 +41,7 @@ def main():
     gl_refs = ls_remote(
         dest_remote_url,
         username=dest_username,
-        password=dest_password
+        password=dest_password,
     )
 
     want_sha = gh_refs[target_ref]
@@ -76,7 +76,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 ```
 
 ## License
