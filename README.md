@@ -31,18 +31,14 @@ def main():
     # Note: Only provide credentials when authentication is required
     # src_username = "<username>"  # Uncomment if source repo requires auth
     # src_password = "<token>"     # Uncomment if source repo requires auth
-    dest_username = "<username>"   # For destination repo write access
-    dest_password = "<token>"      # For destination repo write access
+    dest_username = "<username>"  # For destination repo write access
+    dest_password = "<token>"  # For destination repo write access
 
     # List references from source repository (without authentication)
     gh_refs = ls_remote(src_remote_url)
 
     # List references from destination repository (with authentication)
-    gl_refs = ls_remote(
-        dest_remote_url,
-        username=dest_username,
-        password=dest_password
-    )
+    gl_refs = ls_remote(dest_remote_url, username=dest_username, password=dest_password)
 
     want_sha = gh_refs[target_ref]
     have_shas = set(gl_refs.values())
@@ -76,7 +72,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 ```
 
 ## License

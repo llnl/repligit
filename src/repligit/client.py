@@ -1,10 +1,10 @@
 import urllib.request
+from collections.abc import Iterable
 from http.client import HTTPResponse
-from typing import BinaryIO, Iterable
+from typing import BinaryIO
 
 from repligit.exceptions import (
     RefUpdateRejected,
-    RemoteError,
     UnexpectedResponse,
     UnpackFailed,
 )
@@ -13,6 +13,7 @@ from repligit.parse import (
     generate_fetch_pack_request,
     generate_send_pack_header,
     iter_lines,
+    read_packfile,
 )
 
 
@@ -78,7 +79,7 @@ def fetch_pack(
     have_shas: Iterable[str],
     username: str | None = None,
     password: str | None = None,
-) -> HTTPResponse | None:
+) -> BinaryIO | None:
     """Download a packfile from a remote server."""
     # ensure have_shas is a set, else packfile errors will occur
     have_shas = set(have_shas)
@@ -96,17 +97,15 @@ def fetch_pack(
         data=request,
     )
 
-    line_length = int(resp.read(4), 16)
-    line = resp.read(line_length - 4)
+    # Drain the negotiation section (NAK / ACK / shallow / ...) and return a
+    # stream over the packfile that follows, or None if the server sent no
+    # packfile. The packfile is streamed, not buffered into memory; closing
+    # the returned stream closes the HTTP response.
+    packfile = read_packfile(resp)
+    if packfile is None:
+        resp.close()
 
-    # e.g. "ERR upload-pack: not our ref <sha>"
-    if line[:3] == b"ERR":
-        raise RemoteError(line.decode("utf-8").strip())
-
-    if line[:3] == b"NAK" or line[:3] == b"ACK":
-        return resp
-    else:
-        return None
+    return packfile
 
 
 def send_pack(
