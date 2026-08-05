@@ -1,6 +1,7 @@
 import urllib.request
+from collections.abc import Iterable
 from http.client import HTTPResponse
-from typing import BinaryIO, Iterable
+from typing import BinaryIO
 
 from repligit.exceptions import (
     RefUpdateRejected,
@@ -9,10 +10,9 @@ from repligit.exceptions import (
     UnpackFailed,
 )
 from repligit.parse import (
-    decode_lines,
     generate_fetch_pack_request,
     generate_send_pack_header,
-    iter_lines,
+    read_pkt_lines,
 )
 
 
@@ -64,12 +64,17 @@ def ls_remote(
 
     resp = http_request(url, username=username, password=password)
 
-    lines = decode_lines(iter_lines(resp))
+    lines = read_pkt_lines(resp)
     service_line = next(lines)
     if service_line != "# service=git-upload-pack":
         raise UnexpectedResponse(f"invalid service line: {service_line!r}")
 
-    return {ref: sha for sha, ref in (line.split() for line in lines if line)}
+    refs: dict[str, str] = {}
+    for line in lines:
+        # The first ref line carries the server capabilities after a NUL byte.
+        sha, ref = line.split("\x00", 1)[0].split()
+        refs[ref] = sha
+    return refs
 
 
 def fetch_pack(
@@ -103,10 +108,9 @@ def fetch_pack(
     if line[:3] == b"ERR":
         raise RemoteError(line.decode("utf-8").strip())
 
-    if line[:3] == b"NAK" or line[:3] == b"ACK":
+    if line[:3] in (b"NAK", b"ACK"):
         return resp
-    else:
-        return None
+    return None
 
 
 def send_pack(
@@ -134,7 +138,7 @@ def send_pack(
         data=receive_pack_request,
     )
 
-    lines = decode_lines(iter_lines(resp))
+    lines = read_pkt_lines(resp)
     unpack_status = next(lines)
     if unpack_status != "unpack ok":
         raise UnpackFailed(unpack_status)
@@ -144,8 +148,8 @@ def send_pack(
     ref_status = next(lines)
     prefix = f"ng {ref} "
     if ref_status.startswith(prefix):
-        reason_str = ref_status[len(prefix) :]
-        raise RefUpdateRejected(reason_str)
+        reason = ref_status[len(prefix) :]
+        raise RefUpdateRejected(reason)
 
     if ref_status != f"ok {ref}":
         raise UnexpectedResponse(f"unexpected ref status line: {ref_status!r}")

@@ -1,8 +1,8 @@
-from typing import Iterable
+from collections.abc import Iterable
 
 import aiohttp
 
-from repligit.asyncio.parse import decode_lines, iter_lines
+from repligit.asyncio.parse import read_pkt_lines
 from repligit.exceptions import (
     RefUpdateRejected,
     RemoteError,
@@ -21,21 +21,21 @@ async def ls_remote(
 
     url = f"{url}/info/refs?service=git-upload-pack"
     auth = aiohttp.BasicAuth(username or "", password) if password else None
-    async with aiohttp.ClientSession(auth=auth) as session:
-        async with session.get(url, raise_for_status=True) as resp:
-            lines = decode_lines(iter_lines(resp, encoding="utf-8"))
-            service_line = await anext(lines)
-            if service_line != "# service=git-upload-pack":
-                raise UnexpectedResponse(f"invalid service line: {service_line!r}")
+    async with (
+        aiohttp.ClientSession(auth=auth) as session,
+        session.get(url, raise_for_status=True) as resp,
+    ):
+        lines = read_pkt_lines(resp.content)
+        service_line = await anext(lines)
+        if service_line != "# service=git-upload-pack":
+            raise UnexpectedResponse(f"invalid service line: {service_line!r}")
 
-            # `async for` inside `dict()` not supported so no dict comprehension
-            result = {}
-            async for line in lines:
-                if not line:
-                    continue
-                sha, ref = line.split()
-                result[ref] = sha
-            return result
+        refs: dict[str, str] = {}
+        async for line in lines:
+            # The first ref line carries the server capabilities after a NUL byte.
+            sha, ref = line.split("\x00", 1)[0].split()
+            refs[ref] = sha
+        return refs
 
 
 async def fetch_pack(
@@ -54,8 +54,9 @@ async def fetch_pack(
 
     request = generate_fetch_pack_request(want_sha, have_shas)
 
-    async with aiohttp.ClientSession(auth=auth) as session:
-        async with session.post(
+    async with (
+        aiohttp.ClientSession(auth=auth) as session,
+        session.post(
             url,
             headers={
                 "Content-type": "application/x-git-upload-pack-request",
@@ -63,22 +64,22 @@ async def fetch_pack(
             data=request,
             raise_for_status=True,
             timeout=None,
-        ) as resp:
-            length_bytes = await resp.content.readexactly(4)
-            line_length = int(length_bytes, 16)
+        ) as resp,
+    ):
+        length_bytes = await resp.content.readexactly(4)
+        line_length = int(length_bytes, 16)
 
-            line = await resp.content.readexactly(line_length - 4)
+        line = await resp.content.readexactly(line_length - 4)
 
-            # e.g. "ERR upload-pack: not our ref <sha>"
-            if line[:3] == b"ERR":
-                raise RemoteError(line.decode("utf-8").strip())
+        # e.g. "ERR upload-pack: not our ref <sha>"
+        if line[:3] == b"ERR":
+            raise RemoteError(line.decode("utf-8").strip())
 
-            if line[:3] == b"NAK" or line[:3] == b"ACK":
-                # this is a difference in API between sync and async
-                # has to be read within this context to be used in the caller
-                return await resp.content.read()
-            else:
-                return None
+        if line[:3] in (b"NAK", b"ACK"):
+            # Unlike the sync version, the packfile must be read here, while
+            # the response is still open, and returned as bytes.
+            return await resp.content.read()
+        return None
 
 
 async def send_pack(
@@ -98,27 +99,29 @@ async def send_pack(
     # unlike in the sync version the packfile is already read into memory
     receive_pack_request = header + packfile
 
-    async with aiohttp.ClientSession(auth=auth) as session:
-        async with session.post(
+    async with (
+        aiohttp.ClientSession(auth=auth) as session,
+        session.post(
             url,
             headers={
                 "Content-type": "application/x-git-receive-pack-request",
             },
             data=receive_pack_request,
             raise_for_status=True,
-        ) as resp:
-            lines = decode_lines(iter_lines(resp, encoding="utf-8"))
-            unpack_status = await anext(lines)
-            if unpack_status != "unpack ok":
-                raise UnpackFailed(unpack_status)
+        ) as resp,
+    ):
+        lines = read_pkt_lines(resp.content)
+        unpack_status = await anext(lines)
+        if unpack_status != "unpack ok":
+            raise UnpackFailed(unpack_status)
 
-            # "ng <ref> <reason>" (ng = not good) means the remote rejected the
-            # update. The reason may be non-fast-forward, hook declined, etc.
-            ref_status = await anext(lines)
-            prefix = f"ng {ref} "
-            if ref_status.startswith(prefix):
-                reason_str = ref_status[len(prefix) :]
-                raise RefUpdateRejected(reason_str)
+        # "ng <ref> <reason>" (ng = not good) means the remote rejected the
+        # update. The reason may be non-fast-forward, hook declined, etc.
+        ref_status = await anext(lines)
+        prefix = f"ng {ref} "
+        if ref_status.startswith(prefix):
+            reason = ref_status[len(prefix) :]
+            raise RefUpdateRejected(reason)
 
-            if ref_status != f"ok {ref}":
-                raise UnexpectedResponse(f"unexpected ref status line: {ref_status!r}")
+        if ref_status != f"ok {ref}":
+            raise UnexpectedResponse(f"unexpected ref status line: {ref_status!r}")
