@@ -47,6 +47,52 @@ async def _read_pkt_payload(
     return payload
 
 
+async def read_packfile(reader: aiohttp.StreamReader) -> bytes | None:
+    """Drain a git-upload-pack negotiation section and return the packfile.
+
+    ``reader`` is an asynchronous byte stream exposing ``readexactly`` and
+    ``read`` (e.g. ``aiohttp.ClientResponse.content``).
+
+    The server response begins with a negotiation section made up of pkt-lines
+    (``NAK``, ``ACK <sha>``, ``ACK <sha> <status>``, ``shallow <sha>``, ...).
+    The packfile that follows is *not* a pkt-line: it starts with the literal
+    4-byte ``PACK`` signature. Servers may send several pkt-lines (e.g. multiple
+    ``ACK`` lines during negotiation), so we consume pkt-lines until the
+    ``PACK`` signature is reached.
+
+    Args:
+        reader: The asynchronous response byte stream.
+
+    Returns:
+        bytes: The packfile, including its ``PACK`` signature.
+        None: If the stream ends before a packfile is sent.
+
+    Raises:
+        RemoteError: If the server sends an ``ERR`` pkt-line.
+        UnexpectedResponse: If the stream is truncated mid-pkt-line or a
+            pkt-line is malformed.
+    """
+    while True:
+        prefix = await _read_pkt_prefix(reader)
+
+        # The packfile is not length-prefixed; it begins with "PACK". This can
+        # never collide with a pkt-line length prefix, which is 4 hex digits.
+        if prefix == b"PACK":
+            return prefix + await reader.read()
+
+        if not prefix:
+            # Clean end of stream without a packfile (nothing to fetch).
+            return None
+
+        line_length = parse_pkt_length(prefix)
+        if line_length == 0:
+            # Flush packet ("0000"); keep draining.
+            continue
+
+        # NAK / ACK / shallow / unshallow -> keep draining the negotiation.
+        await _read_pkt_payload(reader, line_length)
+
+
 async def read_pkt_lines(
     reader: aiohttp.StreamReader, encoding: str = "utf-8"
 ) -> AsyncIterator[str]:

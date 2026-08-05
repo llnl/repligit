@@ -5,13 +5,13 @@ from typing import BinaryIO
 
 from repligit.exceptions import (
     RefUpdateRejected,
-    RemoteError,
     UnexpectedResponse,
     UnpackFailed,
 )
 from repligit.parse import (
     generate_fetch_pack_request,
     generate_send_pack_header,
+    read_packfile,
     read_pkt_lines,
 )
 
@@ -83,7 +83,7 @@ def fetch_pack(
     have_shas: Iterable[str],
     username: str | None = None,
     password: str | None = None,
-) -> HTTPResponse | None:
+) -> BinaryIO | None:
     """Download a packfile from a remote server."""
     # ensure have_shas is a set, else packfile errors will occur
     have_shas = set(have_shas)
@@ -101,16 +101,14 @@ def fetch_pack(
         data=request,
     )
 
-    line_length = int(resp.read(4), 16)
-    line = resp.read(line_length - 4)
+    # read_packfile drains the negotiation section and returns a stream over
+    # the packfile (closing it closes the HTTP response), or None if the
+    # server sent no packfile.
+    packfile = read_packfile(resp)
+    if packfile is None:
+        resp.close()
 
-    # e.g. "ERR upload-pack: not our ref <sha>"
-    if line[:3] == b"ERR":
-        raise RemoteError(line.decode("utf-8").strip())
-
-    if line[:3] in (b"NAK", b"ACK"):
-        return resp
-    return None
+    return packfile
 
 
 def send_pack(

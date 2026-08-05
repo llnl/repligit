@@ -1,5 +1,6 @@
+import io
 from collections.abc import Generator, Iterable
-from typing import IO
+from typing import IO, BinaryIO
 
 from repligit.exceptions import RemoteError, UnexpectedResponse
 
@@ -143,6 +144,90 @@ def encode_lines(lines: Iterable[bytes | str]) -> bytes:
         result.append(b"\n")
 
     return b"".join(result)
+
+
+class _PackfileStream(io.RawIOBase):
+    """Read-only binary stream that replays the already-consumed ``PACK``
+    signature before delegating reads to the underlying response stream.
+
+    This lets ``read_packfile`` hand the packfile back to the caller as a
+    stream without buffering it in memory. Closing this stream closes the
+    underlying stream.
+    """
+
+    def __init__(self, stream: IO[bytes]):
+        self._stream = stream
+        self._prefix = b"PACK"
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer) -> int:
+        # Serve the replayed signature first, then pass reads through.
+        if self._prefix:
+            n = min(len(buffer), len(self._prefix))
+            buffer[:n] = self._prefix[:n]
+            self._prefix = self._prefix[n:]
+            return n
+
+        chunk = self._stream.read(len(buffer))
+        buffer[: len(chunk)] = chunk
+        return len(chunk)
+
+    def close(self) -> None:
+        try:
+            self._stream.close()
+        finally:
+            super().close()
+
+
+def read_packfile(stream: IO[bytes]) -> BinaryIO | None:
+    """Drain a git-upload-pack negotiation section and return the packfile.
+
+    ``stream`` is a synchronous, file-like byte stream (e.g.
+    ``http.client.HTTPResponse``).
+
+    The server response begins with a negotiation section made up of pkt-lines
+    (``NAK``, ``ACK <sha>``, ``ACK <sha> <status>``, ``shallow <sha>``, ...).
+    The packfile that follows is *not* a pkt-line: it starts with the literal
+    4-byte ``PACK`` signature. Servers may send several pkt-lines (e.g. multiple
+    ``ACK`` lines during negotiation), so we consume pkt-lines until the
+    ``PACK`` signature is reached.
+
+    Args:
+        stream: The response byte stream.
+
+    Returns:
+        BinaryIO: A read-only stream over the packfile, starting at its
+            ``PACK`` signature. The packfile is *not* buffered in memory;
+            reads are forwarded to ``stream``, and closing the returned
+            stream closes ``stream``.
+        None: If the stream ends before a packfile is sent.
+
+    Raises:
+        RemoteError: If the server sends an ``ERR`` pkt-line.
+        UnexpectedResponse: If the stream is truncated mid-pkt-line or a
+            pkt-line is malformed.
+    """
+    while True:
+        prefix = _read_pkt_prefix(stream)
+
+        # The packfile is not length-prefixed; it begins with "PACK". This can
+        # never collide with a pkt-line length prefix, which is 4 hex digits.
+        if prefix == b"PACK":
+            return io.BufferedReader(_PackfileStream(stream))
+
+        if not prefix:
+            # Clean end of stream without a packfile (nothing to fetch).
+            return None
+
+        line_length = parse_pkt_length(prefix)
+        if line_length == 0:
+            # Flush packet ("0000"); keep draining.
+            continue
+
+        # NAK / ACK / shallow / unshallow -> keep draining the negotiation.
+        _read_pkt_payload(stream, line_length)
 
 
 def generate_send_pack_header(ref: str, from_sha: str, to_sha: str) -> bytes:

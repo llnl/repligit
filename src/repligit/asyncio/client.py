@@ -2,10 +2,9 @@ from collections.abc import Iterable
 
 import aiohttp
 
-from repligit.asyncio.parse import read_pkt_lines
+from repligit.asyncio.parse import read_packfile, read_pkt_lines
 from repligit.exceptions import (
     RefUpdateRejected,
-    RemoteError,
     UnexpectedResponse,
     UnpackFailed,
 )
@@ -66,20 +65,9 @@ async def fetch_pack(
             timeout=None,
         ) as resp,
     ):
-        length_bytes = await resp.content.readexactly(4)
-        line_length = int(length_bytes, 16)
-
-        line = await resp.content.readexactly(line_length - 4)
-
-        # e.g. "ERR upload-pack: not our ref <sha>"
-        if line[:3] == b"ERR":
-            raise RemoteError(line.decode("utf-8").strip())
-
-        if line[:3] in (b"NAK", b"ACK"):
-            # Unlike the sync version, the packfile must be read here, while
-            # the response is still open, and returned as bytes.
-            return await resp.content.read()
-        return None
+        # The packfile must be fully read within this async context so the
+        # caller can use it; read_packfile does so before returning.
+        return await read_packfile(resp.content)
 
 
 async def send_pack(
