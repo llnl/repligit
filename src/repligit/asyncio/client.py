@@ -71,13 +71,15 @@ async def fetch_pack(
 
                 line = await resp.content.readexactly(line_length - 4)
 
+                prefix = line[:3]
+
                 # e.g. "ERR upload-pack: not our ref <sha>"
-                if line[:3] == b"ERR":
+                if prefix == b"ERR":
                     raise RemoteError(line.decode("utf-8").strip())
 
-                if line[:3] not in (b"NAK", b"ACK"):
+                if prefix not in (b"NAK", b"ACK"):
                     return None
-                if line[:3] == b"NAK" or len(line.split()) == 2:
+                if prefix == b"NAK" or len(line.split()) == 2:
                     # "NAK" or final "ACK <sha>": negotiation done, packfile
                     # follows. Unlike the sync API, the body must be read
                     # within this context to be usable by the caller.

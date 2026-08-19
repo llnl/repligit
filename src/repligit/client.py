@@ -112,13 +112,15 @@ def fetch_pack(
         line_length = int(resp.read(4), 16)
         line = resp.read(line_length - 4)
 
+        prefix = line[:3]
+
         # e.g. "ERR upload-pack: not our ref <sha>"
-        if line[:3] == b"ERR":
+        if prefix == b"ERR":
             raise RemoteError(line.decode("utf-8").strip())
 
-        if line[:3] not in (b"NAK", b"ACK"):
+        if prefix not in (b"NAK", b"ACK"):
             return None
-        if line[:3] == b"NAK" or len(line.split()) == 2:
+        if prefix == b"NAK" or len(line.split()) == 2:
             # "NAK" or final "ACK <sha>": negotiation done, packfile follows
             return resp
         # intermediate multi-ack line: "ACK <sha> continue|common|ready"
