@@ -37,13 +37,11 @@ class _AsyncStream:
         return chunk
 
 
-def _async_stream(data: bytes) -> aiohttp.StreamReader:
-    return cast(aiohttp.StreamReader, _AsyncStream(data))
-
-
 def _collect_async_pkt_lines(raw: bytes) -> list[str]:
+    stream = cast(aiohttp.StreamReader, _AsyncStream(raw))
+
     async def _collect() -> list[str]:
-        return [line async for line in async_read_pkt_lines(_async_stream(raw))]
+        return [line async for line in async_read_pkt_lines(stream)]
 
     return asyncio.run(_collect())
 

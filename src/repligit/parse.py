@@ -108,12 +108,8 @@ def read_pkt_lines(
         UnexpectedResponse: If the stream is truncated mid-pkt-line or a
             pkt-line is malformed.
     """
-    while True:
-        prefix = _read_pkt_prefix(stream)
-        if not prefix:
-            # Clean end of stream.
-            return
-
+    # An empty prefix means a clean end of stream.
+    while prefix := _read_pkt_prefix(stream):
         line_length = parse_pkt_length(prefix)
         if line_length == 0:
             # Flush packet ("0000"); carries no payload.
