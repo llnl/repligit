@@ -13,7 +13,6 @@ from repligit.parse import (
     read_pkt_lines,
 )
 
-
 def _pkt(payload: bytes) -> bytes:
     """Encode a single git pkt-line."""
     return f"{len(payload) + 5:04x}".encode() + payload + b"\n"
@@ -34,10 +33,6 @@ class _AsyncStream:
             partial, self._buf = self._buf, b""
             raise asyncio.IncompleteReadError(partial, n)
         chunk, self._buf = self._buf[:n], self._buf[n:]
-        return chunk
-
-    async def read(self) -> bytes:
-        chunk, self._buf = self._buf, b""
         return chunk
 
 
