@@ -2,7 +2,7 @@ from typing import Iterable
 
 import aiohttp
 
-from repligit.asyncio.parse import decode_lines, iter_lines
+from repligit.asyncio.parse import read_pkt_lines
 from repligit.exceptions import (
     RefUpdateRejected,
     RemoteError,
@@ -23,19 +23,17 @@ async def ls_remote(
     auth = aiohttp.BasicAuth(username or "", password) if password else None
     async with aiohttp.ClientSession(auth=auth) as session:
         async with session.get(url, raise_for_status=True) as resp:
-            lines = decode_lines(iter_lines(resp, encoding="utf-8"))
+            lines = read_pkt_lines(resp.content)
             service_line = await anext(lines)
             if service_line != "# service=git-upload-pack":
                 raise UnexpectedResponse(f"invalid service line: {service_line!r}")
 
-            # `async for` inside `dict()` not supported so no dict comprehension
-            result = {}
+            refs: dict[str, str] = {}
             async for line in lines:
-                if not line:
-                    continue
-                sha, ref = line.split()
-                result[ref] = sha
-            return result
+                # The first ref line carries the server capabilities after a NUL byte.
+                sha, ref = line.split("\x00", 1)[0].split()
+                refs[ref] = sha
+            return refs
 
 
 async def fetch_pack(
@@ -107,7 +105,7 @@ async def send_pack(
             data=receive_pack_request,
             raise_for_status=True,
         ) as resp:
-            lines = decode_lines(iter_lines(resp, encoding="utf-8"))
+            lines = read_pkt_lines(resp.content)
             unpack_status = await anext(lines)
             if unpack_status != "unpack ok":
                 raise UnpackFailed(unpack_status)
