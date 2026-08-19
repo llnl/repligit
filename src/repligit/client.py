@@ -82,8 +82,13 @@ def fetch_pack(
     have_shas: Iterable[str],
     username: str | None = None,
     password: str | None = None,
-) -> HTTPResponse | None:
-    """Download a packfile from a remote server."""
+) -> BinaryIO | None:
+    """Download a packfile from a remote server.
+
+    Returns a binary stream positioned at the start of the packfile
+    (reading it to EOF yields exactly the packfile), or None if the
+    server response was unrecognized.
+    """
     # ensure have_shas is a set, else packfile errors will occur
     have_shas = set(have_shas)
 
@@ -100,17 +105,23 @@ def fetch_pack(
         data=request,
     )
 
-    line_length = int(resp.read(4), 16)
-    line = resp.read(line_length - 4)
+    # Consume negotiation pkt-lines. With multi-ack the server may send
+    # several "ACK <sha> continue|common|ready" lines before the terminating
+    # "NAK" or final "ACK <sha>", after which the packfile begins.
+    while True:
+        line_length = int(resp.read(4), 16)
+        line = resp.read(line_length - 4)
 
-    # e.g. "ERR upload-pack: not our ref <sha>"
-    if line[:3] == b"ERR":
-        raise RemoteError(line.decode("utf-8").strip())
+        # e.g. "ERR upload-pack: not our ref <sha>"
+        if line[:3] == b"ERR":
+            raise RemoteError(line.decode("utf-8").strip())
 
-    if line[:3] == b"NAK" or line[:3] == b"ACK":
-        return resp
-    else:
-        return None
+        if line[:3] not in (b"NAK", b"ACK"):
+            return None
+        if line[:3] == b"NAK" or len(line.split()) == 2:
+            # "NAK" or final "ACK <sha>": negotiation done, packfile follows
+            return resp
+        # intermediate multi-ack line: "ACK <sha> continue|common|ready"
 
 
 def send_pack(
