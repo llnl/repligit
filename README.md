@@ -49,7 +49,7 @@ def main():
 
     from_sha = gl_refs.get(target_ref) or ("0" * 40)
 
-    if want_sha in have_shas:
+    if from_sha == want_sha:
         print("Everything is up to date")
         return
 
