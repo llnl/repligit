@@ -29,6 +29,10 @@ class _AsyncStream:
     def __init__(self, data: bytes):
         self._buf = data
 
+    async def read(self) -> bytes:
+        chunk, self._buf = self._buf, b""
+        return chunk
+
     async def readexactly(self, n: int) -> bytes:
         if len(self._buf) < n:
             partial, self._buf = self._buf, b""
@@ -162,3 +166,52 @@ def test_generate_send_pack_header():
 
     output_header = generate_send_pack_header(ref, from_sha, to_sha)
     assert expected_header == output_header
+
+
+_MULTI_ACK_RESPONSE = (
+    _pkt(f"ACK {SHA_A} continue".encode())
+    + _pkt(f"ACK {SHA_B} common".encode())
+    + _pkt(f"ACK {SHA_B}".encode())
+    + b"PACK...packfile bytes..."
+)
+
+
+def test_fetch_pack_consumes_multi_ack_lines_sync(monkeypatch):
+    import repligit.client as client
+
+    monkeypatch.setattr(
+        client, "http_request", lambda *a, **kw: io.BytesIO(_MULTI_ACK_RESPONSE)
+    )
+    resp = client.fetch_pack("http://x", SHA_A, [SHA_B])
+    assert resp is not None
+    assert resp.read().startswith(b"PACK")
+
+
+def test_fetch_pack_consumes_multi_ack_lines_async(monkeypatch):
+    import repligit.asyncio.client as aclient
+
+    class _Resp:
+        content = _AsyncStream(_MULTI_ACK_RESPONSE)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    class _Session:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        def post(self, *a, **kw):
+            return _Resp()
+
+    monkeypatch.setattr(aclient.aiohttp, "ClientSession", _Session)
+    data = asyncio.run(aclient.fetch_pack("http://x", SHA_A, [SHA_B]))
+    assert data is not None and data.startswith(b"PACK")

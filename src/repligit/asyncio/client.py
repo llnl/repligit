@@ -62,21 +62,29 @@ async def fetch_pack(
             raise_for_status=True,
             timeout=None,
         ) as resp:
-            length_bytes = await resp.content.readexactly(4)
-            line_length = int(length_bytes, 16)
+            # Consume negotiation pkt-lines. With multi-ack the server may
+            # send several "ACK <sha> continue|common|ready" lines before the
+            # terminating "NAK" or final "ACK <sha>", then the packfile.
+            while True:
+                length_bytes = await resp.content.readexactly(4)
+                line_length = int(length_bytes, 16)
 
-            line = await resp.content.readexactly(line_length - 4)
+                line = await resp.content.readexactly(line_length - 4)
 
-            # e.g. "ERR upload-pack: not our ref <sha>"
-            if line[:3] == b"ERR":
-                raise RemoteError(line.decode("utf-8").strip())
+                prefix = line[:3]
 
-            if line[:3] == b"NAK" or line[:3] == b"ACK":
-                # this is a difference in API between sync and async
-                # has to be read within this context to be used in the caller
-                return await resp.content.read()
-            else:
-                return None
+                # e.g. "ERR upload-pack: not our ref <sha>"
+                if prefix == b"ERR":
+                    raise RemoteError(line.decode("utf-8").strip())
+
+                if prefix not in (b"NAK", b"ACK"):
+                    return None
+                if prefix == b"NAK" or len(line.split()) == 2:
+                    # "NAK" or final "ACK <sha>": negotiation done, packfile
+                    # follows. Unlike the sync API, the body must be read
+                    # within this context to be usable by the caller.
+                    return await resp.content.read()
+                # intermediate multi-ack line: "ACK <sha> continue|common|ready"
 
 
 async def send_pack(
