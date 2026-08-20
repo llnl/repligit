@@ -28,5 +28,6 @@ class PyRepligit(PythonPackage):
 
     depends_on("python@3.10:", type=("build", "run"))
     depends_on("py-hatchling", type="build")
+    depends_on("py-hatch-vcs", type="build", when="@main")
 
     depends_on("py-aiohttp", type=("build", "run"), when="+aiohttp")

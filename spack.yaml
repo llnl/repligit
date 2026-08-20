@@ -13,6 +13,8 @@ spack:
   - py-ruff
   - py-pip
   - py-ty
+  - py-build
+  - py-hatch-vcs
   view: true
   concretizer:
     unify: true
