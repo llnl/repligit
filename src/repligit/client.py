@@ -76,6 +76,26 @@ def ls_remote(
     return refs
 
 
+class _PackfileStream:
+    """Binary stream that replays already-consumed leading bytes (the
+    b"PACK" signature read during negotiation) before the response body."""
+
+    def __init__(self, head: bytes, resp: BinaryIO):
+        self._head = head
+        self._resp = resp
+
+    def read(self, size: int = -1) -> bytes:
+        if not self._head:
+            return self._resp.read(size)
+        if size is None or size < 0:
+            data, self._head = self._head, b""
+            return data + self._resp.read()
+        data, self._head = self._head[:size], self._head[size:]
+        if len(data) < size:
+            data += self._resp.read(size - len(data))
+        return data
+
+
 def fetch_pack(
     url: str,
     want_sha: str,
@@ -105,11 +125,26 @@ def fetch_pack(
         data=request,
     )
 
-    # Consume negotiation pkt-lines. With multi-ack the server may send
-    # several "ACK <sha> continue|common|ready" lines before the terminating
-    # "NAK" or final "ACK <sha>", after which the packfile begins.
+    # Consume negotiation pkt-lines until the packfile begins. The server
+    # may send several ACK lines before the pack: with multi-ack,
+    # "ACK <sha> continue|common|ready" lines, and even without it some
+    # servers (e.g. GitHub) emit one bare "ACK <sha>" per common commit
+    # found. The only reliable delimiter is the b"PACK" signature itself,
+    # which can never be a pkt-line length prefix ('P' and 'K' are not hex
+    # digits).
     while True:
-        line_length = int(resp.read(4), 16)
+        prefix_bytes = resp.read(4)
+
+        if prefix_bytes == b"PACK":
+            # Negotiation done, packfile begins here. Wrap the remaining
+            # stream so reading it to EOF yields exactly the packfile.
+            return _PackfileStream(prefix_bytes, resp)
+
+        line_length = int(prefix_bytes, 16)
+        if line_length == 0:
+            # flush-pkt ("0000"); carries no payload
+            continue
+
         line = resp.read(line_length - 4)
 
         prefix = line[:3]
@@ -120,10 +155,9 @@ def fetch_pack(
 
         if prefix not in (b"NAK", b"ACK"):
             return None
-        if prefix == b"NAK" or len(line.split()) == 2:
-            # "NAK" or final "ACK <sha>": negotiation done, packfile follows
-            return resp
-        # intermediate multi-ack line: "ACK <sha> continue|common|ready"
+        # negotiation line ("NAK", "ACK <sha>", or
+        # "ACK <sha> continue|common|ready"): keep consuming until the
+        # b"PACK" signature is reached
 
 
 def send_pack(
