@@ -1,3 +1,4 @@
+import io
 import urllib.request
 from http.client import HTTPResponse
 from typing import BinaryIO, Iterable
@@ -76,17 +77,19 @@ def ls_remote(
     return refs
 
 
-class _PackfileStream:
+class _PackfileStream(io.RawIOBase, BinaryIO):
     """Binary stream that replays already-consumed leading bytes (the
     b"PACK" signature read during negotiation) before the response body."""
 
     def __init__(self, head: bytes, resp: BinaryIO):
+        super().__init__()
         self._head = head
         self._resp = resp
 
-    def read(self, size: int = -1) -> bytes:
-        if not self._head:
-            return self._resp.read(size)
+    def readable(self) -> bool:
+        return True
+
+    def read(self, size: int | None = -1) -> bytes:
         if size is None or size < 0:
             data, self._head = self._head, b""
             return data + self._resp.read()
