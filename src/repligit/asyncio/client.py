@@ -62,12 +62,26 @@ async def fetch_pack(
             raise_for_status=True,
             timeout=None,
         ) as resp:
-            # Consume negotiation pkt-lines. With multi-ack the server may
-            # send several "ACK <sha> continue|common|ready" lines before the
-            # terminating "NAK" or final "ACK <sha>", then the packfile.
+            # Consume negotiation pkt-lines until the packfile begins. The
+            # server may send several ACK lines before the pack: with
+            # multi-ack, "ACK <sha> continue|common|ready" lines, and even
+            # without it some servers (e.g. GitHub) emit one bare
+            # "ACK <sha>" per common commit found. The only reliable
+            # delimiter is the b"PACK" signature itself, which can never be
+            # a pkt-line length prefix ('P' and 'K' are not hex digits).
             while True:
-                length_bytes = await resp.content.readexactly(4)
-                line_length = int(length_bytes, 16)
+                prefix_bytes = await resp.content.readexactly(4)
+
+                if prefix_bytes == b"PACK":
+                    # Negotiation done, packfile begins here. Unlike the
+                    # sync API, the body must be read within this context
+                    # to be usable by the caller.
+                    return prefix_bytes + await resp.content.read()
+
+                line_length = int(prefix_bytes, 16)
+                if line_length == 0:
+                    # flush-pkt ("0000"); carries no payload
+                    continue
 
                 line = await resp.content.readexactly(line_length - 4)
 
@@ -79,12 +93,9 @@ async def fetch_pack(
 
                 if prefix not in (b"NAK", b"ACK"):
                     return None
-                if prefix == b"NAK" or len(line.split()) == 2:
-                    # "NAK" or final "ACK <sha>": negotiation done, packfile
-                    # follows. Unlike the sync API, the body must be read
-                    # within this context to be usable by the caller.
-                    return await resp.content.read()
-                # intermediate multi-ack line: "ACK <sha> continue|common|ready"
+                # negotiation line ("NAK", "ACK <sha>", or
+                # "ACK <sha> continue|common|ready"): keep consuming until
+                # the b"PACK" signature is reached
 
 
 async def send_pack(

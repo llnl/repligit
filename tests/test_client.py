@@ -5,6 +5,8 @@ from typing import cast
 import aiohttp
 import pytest
 
+import repligit.asyncio.client as aclient
+import repligit.client as client
 from repligit.asyncio.parse import read_pkt_lines as async_read_pkt_lines
 from repligit.exceptions import RemoteError, UnexpectedResponse
 from repligit.parse import (
@@ -168,30 +170,45 @@ def test_generate_send_pack_header():
     assert expected_header == output_header
 
 
-_MULTI_ACK_RESPONSE = (
-    _pkt(f"ACK {SHA_A} continue".encode())
-    + _pkt(f"ACK {SHA_B} common".encode())
-    + _pkt(f"ACK {SHA_B}".encode())
-    + b"PACK...packfile bytes..."
-)
+# A fake packfile body. Only the leading b"PACK" signature matters here:
+# fetch_pack must return the stream positioned exactly at it.
+_FAKE_PACK = b"PACK\x00\x00\x00\x02\x00\x00\x00\x01...packfile bytes..."
+
+# Negotiation responses that fetch_pack must fully consume before the pack.
+_NEGOTIATION_RESPONSES = [
+    # Server has none of our haves.
+    pytest.param(_pkt(b"NAK"), id="nak"),
+    # multi-ack: intermediate status lines then a final bare ACK.
+    pytest.param(
+        _pkt(f"ACK {SHA_A} continue".encode())
+        + _pkt(f"ACK {SHA_B} common".encode())
+        + _pkt(f"ACK {SHA_B}".encode()),
+        id="multi_ack",
+    ),
+    # Without multi-ack, some servers (e.g. GitHub) send one bare
+    # "ACK <sha>" per common commit found. Treating the first bare ACK as
+    # final made fetch_pack return the remaining ACK pkt-lines as if they
+    # were the packfile, producing a corrupt pack whose upload failed with
+    # "packfile signature mismatch" (regression test).
+    pytest.param(
+        _pkt(f"ACK {SHA_A}".encode()) + _pkt(f"ACK {SHA_B}".encode()),
+        id="repeated_bare_acks",
+    ),
+    # A stray flush-pkt between negotiation and the pack must be skipped.
+    pytest.param(_pkt(b"NAK") + b"0000", id="nak_then_flush"),
+]
 
 
-def test_fetch_pack_consumes_multi_ack_lines_sync(monkeypatch):
-    import repligit.client as client
-
-    monkeypatch.setattr(
-        client, "http_request", lambda *a, **kw: io.BytesIO(_MULTI_ACK_RESPONSE)
-    )
+def _fetch_pack_sync(monkeypatch, raw: bytes) -> bytes | None:
+    monkeypatch.setattr(client, "http_request", lambda *a, **kw: io.BytesIO(raw))
     resp = client.fetch_pack("http://x", SHA_A, [SHA_B])
-    assert resp is not None
-    assert resp.read().startswith(b"PACK")
+    return None if resp is None else resp.read()
 
 
-def test_fetch_pack_consumes_multi_ack_lines_async(monkeypatch):
-    import repligit.asyncio.client as aclient
-
+def _fetch_pack_async(monkeypatch, raw: bytes) -> bytes | None:
     class _Resp:
-        content = _AsyncStream(_MULTI_ACK_RESPONSE)
+        def __init__(self):
+            self.content = _AsyncStream(raw)
 
         async def __aenter__(self):
             return self
@@ -213,5 +230,27 @@ def test_fetch_pack_consumes_multi_ack_lines_async(monkeypatch):
             return _Resp()
 
     monkeypatch.setattr(aclient.aiohttp, "ClientSession", _Session)
-    data = asyncio.run(aclient.fetch_pack("http://x", SHA_A, [SHA_B]))
-    assert data is not None and data.startswith(b"PACK")
+    return asyncio.run(aclient.fetch_pack("http://x", SHA_A, [SHA_B]))
+
+
+@pytest.mark.parametrize("negotiation", _NEGOTIATION_RESPONSES)
+def test_fetch_pack_returns_exactly_the_packfile_sync(monkeypatch, negotiation):
+    assert _fetch_pack_sync(monkeypatch, negotiation + _FAKE_PACK) == _FAKE_PACK
+
+
+@pytest.mark.parametrize("negotiation", _NEGOTIATION_RESPONSES)
+def test_fetch_pack_returns_exactly_the_packfile_async(monkeypatch, negotiation):
+    assert _fetch_pack_async(monkeypatch, negotiation + _FAKE_PACK) == _FAKE_PACK
+
+
+def test_fetch_pack_sync_stream_supports_short_reads(monkeypatch):
+    # The returned stream replays the already-consumed b"PACK" signature;
+    # make sure partial reads across that boundary are correct.
+    monkeypatch.setattr(
+        client, "http_request", lambda *a, **kw: io.BytesIO(_pkt(b"NAK") + _FAKE_PACK)
+    )
+    resp = client.fetch_pack("http://x", SHA_A, [SHA_B])
+    assert resp is not None
+    assert resp.read(2) == b"PA"
+    assert resp.read(4) == b"CK\x00\x00"
+    assert resp.read() == _FAKE_PACK[6:]
