@@ -178,13 +178,14 @@ def send_pack(
     ref: str,
     from_sha: str,
     to_sha: str,
-    packfile: BinaryIO,
+    packfile: bytes | BinaryIO,
     username: str | None = None,
     password: str | None = None,
 ) -> None:
     """Send a packfile to a remote server, updating ref from from_sha to to_sha.
 
-    The request body is streamed (chunked transfer encoding), so the
+    The packfile may be given either as a binary stream or as raw bytes.
+    The request body is streamed (chunked transfer encoding), so a stream
     packfile is never read into memory whole; a stream returned by
     fetch_pack can be piped through directly.
 
@@ -193,6 +194,9 @@ def send_pack(
     or a hook declined).
     """
     url = f"{url}/git-receive-pack"
+
+    if isinstance(packfile, bytes):
+        packfile = io.BytesIO(packfile)
 
     header = generate_send_pack_header(ref, from_sha, to_sha)
     receive_pack_request = chain(

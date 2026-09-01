@@ -133,14 +133,16 @@ async def send_pack(
     ref: str,
     from_sha: str,
     to_sha: str,
-    packfile: AsyncIterable[bytes],
+    packfile: bytes | AsyncIterable[bytes],
     username: str | None = None,
     password: str | None = None,
 ) -> None:
     """Send a packfile to a remote server, updating ref from from_sha to to_sha.
 
-    The request body is streamed, so the packfile is never held in memory
-    whole; an iterator returned by fetch_pack can be piped through directly.
+    The packfile may be given either as an async iterable of chunks or as
+    raw bytes. The request body is streamed, so an iterable packfile is
+    never held in memory whole; an iterator returned by fetch_pack can be
+    piped through directly.
 
     Raises UnpackFailed if the remote could not unpack the packfile, or
     RefUpdateRejected if it refused the ref update (e.g. non-fast-forward
@@ -153,8 +155,11 @@ async def send_pack(
 
     async def _receive_pack_request() -> AsyncIterator[bytes]:
         yield header
-        async for chunk in packfile:
-            yield chunk
+        if isinstance(packfile, bytes):
+            yield packfile
+        else:
+            async for chunk in packfile:
+                yield chunk
 
     async with (
         aiohttp.ClientSession(auth=auth) as session,
