@@ -36,7 +36,7 @@ pythonpath = [
 
 [tool.ruff]
 line-length = 88
-exclude = ["spack"]
+exclude = ["spack", "README.md"]
 
 [tool.bandit]
 exclude_dirs = []

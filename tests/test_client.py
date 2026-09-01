@@ -6,7 +6,7 @@ import aiohttp
 import pytest
 
 import repligit.asyncio.client as aclient
-import repligit.client as client
+from repligit import client
 from repligit.asyncio.parse import read_pkt_lines as async_read_pkt_lines
 from repligit.exceptions import RemoteError, UnexpectedResponse
 from repligit.parse import (
@@ -41,6 +41,11 @@ class _AsyncStream:
             raise asyncio.IncompleteReadError(partial, n)
         chunk, self._buf = self._buf[:n], self._buf[n:]
         return chunk
+
+    async def iter_any(self):
+        if self._buf:
+            chunk, self._buf = self._buf, b""
+            yield chunk
 
 
 def _collect_async_pkt_lines(raw: bytes) -> list[str]:
@@ -210,27 +215,30 @@ def _fetch_pack_async(monkeypatch, raw: bytes) -> bytes | None:
         def __init__(self):
             self.content = _AsyncStream(raw)
 
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
     class _Session:
+        closed = False
+
         def __init__(self, *a, **kw):
             pass
 
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
-        def post(self, *a, **kw):
+        async def post(self, *a, **kw):
             return _Resp()
 
+        async def close(self):
+            _Session.closed = True
+
     monkeypatch.setattr(aclient.aiohttp, "ClientSession", _Session)
-    return asyncio.run(aclient.fetch_pack("http://x", SHA_A, [SHA_B]))
+
+    async def _run() -> bytes | None:
+        stream = await aclient.fetch_pack("http://x", SHA_A, [SHA_B])
+        if stream is None:
+            assert _Session.closed  # failed negotiation must close the session
+            return None
+        data = b"".join([chunk async for chunk in stream])
+        assert _Session.closed  # stream exhaustion must close the session
+        return data
+
+    return asyncio.run(_run())
 
 
 @pytest.mark.parametrize("negotiation", _NEGOTIATION_RESPONSES)
@@ -254,3 +262,65 @@ def test_fetch_pack_sync_stream_supports_short_reads(monkeypatch):
     assert resp.read(2) == b"PA"
     assert resp.read(4) == b"CK\x00\x00"
     assert resp.read() == _FAKE_PACK[6:]
+
+
+def test_send_pack_streams_sync_packfile(monkeypatch):
+    sent = {}
+
+    def _fake_request(*a, **kw):
+        sent["data"] = kw["data"]
+        return io.BytesIO(_pkt(b"unpack ok") + _pkt(b"ok refs/heads/main"))
+
+    monkeypatch.setattr(client, "http_request", _fake_request)
+
+    client.send_pack(
+        "http://x", "refs/heads/main", SHA_A, SHA_B, io.BytesIO(b"PACK...bytes...")
+    )
+
+    # body must be an iterable of chunks (streamed), not pre-joined bytes
+    assert not isinstance(sent["data"], bytes)
+    header = generate_send_pack_header("refs/heads/main", SHA_A, SHA_B)
+    assert b"".join(sent["data"]) == header + b"PACK...bytes..."
+
+
+def test_send_pack_streams_async_packfile(monkeypatch):
+    sent = {}
+
+    class _Resp:
+        content = _AsyncStream(_pkt(b"unpack ok") + _pkt(b"ok refs/heads/main"))
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    class _Session:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        def post(self, *a, **kw):
+            sent["data"] = kw["data"]
+            return _Resp()
+
+    monkeypatch.setattr(aclient.aiohttp, "ClientSession", _Session)
+
+    async def _packfile():
+        yield b"PACK"
+        yield b"...bytes..."
+
+    async def _run() -> bytes:
+        await aclient.send_pack(
+            "http://x", "refs/heads/main", SHA_A, SHA_B, _packfile()
+        )
+        return b"".join([chunk async for chunk in sent["data"]])
+
+    body = asyncio.run(_run())
+    header = generate_send_pack_header("refs/heads/main", SHA_A, SHA_B)
+    assert body == header + b"PACK...bytes..."

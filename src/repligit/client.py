@@ -1,7 +1,9 @@
 import io
 import urllib.request
+from collections.abc import Iterable
 from http.client import HTTPResponse
-from typing import BinaryIO, Iterable
+from itertools import chain
+from typing import BinaryIO
 
 from repligit.exceptions import (
     RefUpdateRejected,
@@ -21,7 +23,7 @@ def http_request(
     headers: dict[str, str] | None = None,
     username: str | None = None,
     password: str | None = None,
-    data: bytes | None = None,
+    data: bytes | Iterable[bytes] | None = None,
 ) -> HTTPResponse:
     """
     Constructs and executes an HTTP request using urllib. (GET by default,
@@ -32,7 +34,9 @@ def http_request(
         headers (dict, optional): HTTP headers to include in the request
         username (str, optional): Username for basic authentication
         password (str, optional): Password for basic authentication
-        data (bytes, optional): Data to send in the request body
+        data (bytes or iterable of bytes, optional): Data to send in the
+            request body. An iterable is streamed with chunked transfer
+            encoding.
 
     Returns:
         file-like object: The response file handler from the request
@@ -57,8 +61,10 @@ def http_request(
 def ls_remote(
     url: str, username: str | None = None, password: str | None = None
 ) -> dict[str, str]:
-    """Get commit hash of remote master branch, return SHA-1 hex string or
-    None if no remote commits.
+    """List references available on a remote repository.
+
+    Returns a dict mapping ref names (e.g. "refs/heads/main") to their
+    SHA-1 hex strings. The dict is empty if the remote has no refs.
     """
     url = f"{url}/info/refs?service=git-upload-pack"
 
@@ -107,6 +113,9 @@ def fetch_pack(
     password: str | None = None,
 ) -> BinaryIO | None:
     """Download a packfile from a remote server.
+
+    Requests the objects reachable from want_sha that are missing from
+    the have_shas commits.
 
     Returns a binary stream positioned at the start of the packfile
     (reading it to EOF yields exactly the packfile), or None if the
@@ -157,6 +166,7 @@ def fetch_pack(
             raise RemoteError(line.decode("utf-8").strip())
 
         if prefix not in (b"NAK", b"ACK"):
+            resp.close()
             return None
         # negotiation line ("NAK", "ACK <sha>", or
         # "ACK <sha> continue|common|ready"): keep consuming until the
@@ -168,15 +178,31 @@ def send_pack(
     ref: str,
     from_sha: str,
     to_sha: str,
-    packfile: BinaryIO,
+    packfile: bytes | BinaryIO,
     username: str | None = None,
     password: str | None = None,
 ) -> None:
-    """Send a packfile to a remote server."""
+    """Send a packfile to a remote server, updating ref from from_sha to to_sha.
+
+    The packfile may be given either as a binary stream or as raw bytes.
+    The request body is streamed (chunked transfer encoding), so a stream
+    packfile is never read into memory whole; a stream returned by
+    fetch_pack can be piped through directly.
+
+    Raises UnpackFailed if the remote could not unpack the packfile, or
+    RefUpdateRejected if it refused the ref update (e.g. non-fast-forward
+    or a hook declined).
+    """
     url = f"{url}/git-receive-pack"
 
+    if isinstance(packfile, bytes):
+        packfile = io.BytesIO(packfile)
+
     header = generate_send_pack_header(ref, from_sha, to_sha)
-    receive_pack_request = header + packfile.read()
+    receive_pack_request = chain(
+        [header],
+        iter(lambda: packfile.read(65536), b""),  # 64 KiB chunks
+    )
 
     resp = http_request(
         url,

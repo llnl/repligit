@@ -1,4 +1,5 @@
-from typing import IO, Generator, Iterable, Set
+from collections.abc import Generator, Iterable
+from typing import IO
 
 from repligit.exceptions import RemoteError, UnexpectedResponse
 
@@ -156,7 +157,7 @@ def generate_send_pack_header(ref: str, from_sha: str, to_sha: str) -> bytes:
     return encode_lines([f"{from_sha} {to_sha} {ref}\x00 report-status"]) + b"0000"
 
 
-def generate_fetch_pack_request(want: str, haves: Set[str]) -> bytes:
+def generate_fetch_pack_request(want: str, haves: set[str]) -> bytes:
     """Generate a git-upload packfile request.
 
     Args:
